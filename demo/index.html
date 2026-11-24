@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HallCare Demo</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#1c2430;--mute:#667085;--line:#e3e6eb;--pri:#1f5fae;--pri-ink:#fff;--warn:#b54708;--warn-bg:#fff4e5;--ok:#067647;--ok-bg:#e8f7ee;--bad:#b42318;--bad-bg:#fdecea}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--pri);color:#fff;padding:12px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+header h1{margin:0;font-size:18px}header small{opacity:.8}
+main{max-width:1000px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+h2{margin:0 0 12px;font-size:16px}h3{margin:0 0 8px;font-size:14px}
+label{display:block;font-weight:600;font-size:12px;margin:10px 0 4px;color:var(--mute)}
+input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font:inherit;background:#fff}
+textarea{min-height:70px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+button{font:inherit;border:0;border-radius:6px;padding:8px 14px;cursor:pointer;background:var(--pri);color:var(--pri-ink);font-weight:600}
+button.sec{background:#eef2f7;color:var(--ink)}button.danger{background:var(--bad-bg);color:var(--bad)}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--mute)}tr.click{cursor:pointer}tr.click:hover{background:#f8fafc}
+.wrap{overflow-x:auto}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600;background:#eef2f7;white-space:nowrap}
+.s-Waiting{background:var(--warn-bg);color:var(--warn)}.s-Completed{background:var(--ok-bg);color:var(--ok)}.s-Closed{background:#eee;color:#555}
+.s-Reported{background:#e8f0fb;color:var(--pri)}
+.note{font-size:12px;color:var(--mute)}
+.flag{background:var(--warn-bg);color:var(--warn);padding:8px 10px;border-radius:6px;margin:8px 0}
+.stages{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0 14px}
+.stages span{font-size:11px;padding:3px 8px;border-radius:4px;background:#eef2f7;color:var(--mute)}
+.stages span.done{background:var(--pri);color:#fff}.stages span.now{background:var(--warn);color:#fff}
+.tl{border-left:2px solid var(--line);margin-left:6px;padding-left:14px}
+.tl div{margin-bottom:12px;position:relative}.tl div:before{content:"";position:absolute;left:-20px;top:5px;width:10px;height:10px;border-radius:50%;background:var(--pri)}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1c2430;color:#fff;padding:10px 16px;border-radius:8px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs button{background:rgba(255,255,255,.15)}.tabs button.on{background:#fff;color:var(--pri)}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>HallCare</h1><small>Hall maintenance & repair tracking — demo (data stays in this browser)</small></div>
+  <div class="tabs" id="roles"></div>
+</header>
+<main id="app"></main>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const STAGES=["Reported","Reviewed","Inspected","Waiting for Materials or Approval","Ready for Repair","In Progress","Completed"];
+const DELAYS=["Materials unavailable","Approval pending","Waiting for collection or signature"];
+const TYPES=["Electrical (socket/bulb)","Plumbing","Furniture","Door / lock","Window","Other"];
+const HALLS=["Queen Esther Hall","Ogden Hall","Nelson Mandela Hall"];
+const USERS={
+  student:{name:"Adaeze Okafor",role:"Student",hall:HALLS[0],room:"B214"},
+  porter:{name:"Porter Grace",role:"Porter",hall:HALLS[0]},
+  admin:{name:"Hall Administrator",role:"Hall Administrator",hall:HALLS[0]}
+};
+const now=()=>new Date().toISOString();
+const fmt=t=>new Date(t).toLocaleString([], {dateStyle:"medium",timeStyle:"short"});
+const days=t=>Math.floor((Date.now()-new Date(t))/864e5);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+let db, role="student", view={};
+function seed(){
+  const d=n=>new Date(Date.now()-n*864e5).toISOString();
+  const c=(ref,student,room,type,desc,via,by,at,ups,extra={})=>({ref,student,hall:HALLS[0],room,type,desc,via,by,reportedAt:at,status:ups.length?ups[ups.length-1].to:"Reported",updates:ups,...extra});
+  const u=(from,to,note,ev,by="Hall Administrator",extra={})=>({from,to,note,eventAt:ev,enteredAt:ev,by,...extra});
+  return {seq:5,complaints:[
+    c("HC-2026-0001","Adaeze Okafor","B214","Electrical (socket/bulb)","Socket near the reading table is burnt and sparks when used.","Direct","Adaeze Okafor",d(13),[
+      u("Reported","Reviewed","Details confirmed.",d(12)),
+      u("Reviewed","Inspected","Electrician: socket needs replacing. Materials required: 1 x 13A socket.",d(11)),
+      u("Inspected","Waiting for Materials or Approval","Request sent to central store.",d(10),undefined,{delay:"Waiting for collection or signature"})]),
+    c("HC-2026-0002","Adaeze Okafor","B214","Electrical (socket/bulb)","Bulb in the bathroom not working.","Direct","Adaeze Okafor",d(30),[
+      u("Reported","Reviewed","",d(29)),u("Reviewed","Inspected","Bulb needs replacing.",d(28)),
+      u("Inspected","Ready for Repair","Materials available at central store.",d(28)),
+      u("Ready for Repair","In Progress","",d(27)),u("In Progress","Completed","Bulb replaced.",d(27))]),
+    c("HC-2026-0003","Funmi Adeyemi","A105","Plumbing","Tap in room leaks continuously.","Porter on behalf of student","Porter Grace",d(4),[
+      u("Reported","Reviewed","",d(3))]),
+    c("HC-2026-0004","Tobi Bello","C310","Door / lock","Door lock is stiff and hard to open.","Repair notebook","Porter Grace",d(1),[]),
+    c("HC-2026-0005","Ngozi Eze","B101","Window","Window glass cracked.","Direct","Ngozi Eze",d(6),[
+      u("Reported","Reviewed","",d(6)),u("Reviewed","Inspected","Needs a new glass pane.",d(5)),
+      u("Inspected","Waiting for Materials or Approval","Procurement request raised.",d(5),undefined,{delay:"Approval pending"})])
+  ]};
+}
+function load(){try{db=JSON.parse(localStorage.getItem("hallcare"))}catch(e){}if(!db)db=seed()}
+function save(){try{localStorage.setItem("hallcare",JSON.stringify(db))}catch(e){}}
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.hidden=false;clearTimeout(t._h);t._h=setTimeout(()=>t.hidden=true,2600)}
+function newRef(){db.seq++;return "HC-2026-"+String(db.seq).padStart(4,"0")}
+const pill=s=>`<span class="pill s-${s.split(" ")[0]}">${esc(s)}</span>`;
+const get=ref=>db.complaints.find(c=>c.ref===ref);
+const delayOf=c=>{if(c.status!=="Waiting for Materials or Approval")return null;const u=[...c.updates].reverse().find(u=>u.to===c.status);return u};
+
+function renderRoles(){
+  document.getElementById("roles").innerHTML=Object.entries(USERS).map(([k,u])=>`<button class="${k===role?"on":""}" onclick="setRole('${k}')">${u.role}</button>`).join("")+`<button onclick="reset()">Reset data</button>`;
+}
+function setRole(r){role=r;view={};render()}
+function reset(){db=seed();save();view={};render();toast("Demo data reset")}
+
+function complaintForm(onBehalf){
+  return `<div class="card"><h2>${onBehalf?"Report a problem for a student":"Report a maintenance problem"}</h2>
+  <form id="f">
+  ${onBehalf?`<div class="row"><div><label>How was it received?</label><select name="via"><option>Porter on behalf of student</option><option>Repair notebook</option></select></div>
+  <div><label>Student name *</label><input name="student" required></div></div>`:""}
+  <div class="row"><div><label>Hall</label><select name="hall">${HALLS.map(h=>`<option ${h===USERS[role].hall?"selected":""}>${h}</option>`).join("")}</select></div>
+  <div><label>Room number *</label><input name="room" required value="${onBehalf?"":esc(USERS.student.room)}"></div>
+  <div><label>Type of problem *</label><select name="type">${TYPES.map(t=>`<option>${t}</option>`).join("")}</select></div></div>
+  ${onBehalf?`<label>Date written in notebook / reported (if earlier)</label><input type="datetime-local" name="at">`:""}
+  <label>Describe the problem *</label><textarea name="desc" required placeholder="e.g. Socket by the bed is burnt"></textarea>
+  <div class="btns"><button>Submit complaint</button></div></form></div>`;
+}
+function bindForm(onBehalf){
+  document.getElementById("f").onsubmit=e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+    const c={ref:newRef(),student:onBehalf?f.student:USERS.student.name,hall:f.hall,room:f.room,type:f.type,desc:f.desc,
+      via:onBehalf?f.via:"Direct",by:USERS[role].name,reportedAt:f.at?new Date(f.at).toISOString():now(),enteredAt:now(),status:"Reported",updates:[]};
+    db.complaints.unshift(c);save();toast("Submitted. Reference: "+c.ref);view={ref:c.ref};render()};
+}
+
+function list(items,cols){
+  if(!items.length)return `<p class="note">No complaints match.</p>`;
+  return `<div class="wrap"><table><tr><th>Ref</th>${cols.student?"<th>Student</th>":""}<th>Room</th><th>Problem</th><th>Status</th><th>Reported</th></tr>
+  ${items.map(c=>{const d=delayOf(c);return `<tr class="click" onclick="open_('${c.ref}')"><td><b>${c.ref}</b></td>${cols.student?`<td>${esc(c.student)}</td>`:""}
+  <td>${esc(c.room)}</td><td>${esc(c.type)}</td><td>${pill(c.status)}${d?`<div class="note">${esc(d.delay)} · ${days(d.eventAt)}d waiting</div>`:""}${c.reopen&&c.reopen.state==="Pending"?`<div class="note" style="color:var(--bad)">Reopen requested</div>`:""}</td><td>${fmt(c.reportedAt)}<div class="note">${esc(c.via)}</div></td></tr>`}).join("")}</table></div>`;
+}
+function open_(ref){view={ref};render();scrollTo(0,0)}
+
+function detail(c){
+  const idx=STAGES.indexOf(c.status);
+  const d=delayOf(c);
+  let h=`<div class="card"><div class="btns" style="margin:0 0 10px"><button class="sec" onclick="view={};render()">← Back</button></div>
+  <h2>${c.ref} ${pill(c.status)}</h2>
+  <div class="stages">${STAGES.map((s,i)=>`<span class="${i<idx?"done":i===idx?(s.startsWith("Waiting")?"now":"done"):""}">${s.startsWith("Waiting")?"Waiting":s}</span>`).join("")}</div>
+  ${d?`<div class="flag"><b>Waiting:</b> ${esc(d.delay)} — ${days(d.eventAt)} day(s) so far</div>`:""}
+  ${c.misuse?`<div class="flag"><b>Inspection finding:</b> fault caused by misuse — ${esc(c.misuse)}</div>`:""}
+  ${c.closeReason?`<div class="flag"><b>Closed:</b> ${esc(c.closeReason)}</div>`:""}
+  <div class="row"><div><label>Student</label>${esc(c.student)}</div><div><label>Location</label>${esc(c.hall)}, ${esc(c.room)}</div>
+  <div><label>Type</label>${esc(c.type)}</div><div><label>Reported via</label>${esc(c.via)} (by ${esc(c.by)})</div></div>
+  <label>Description</label><p style="margin:0">${esc(c.desc)}</p></div>`;
+  h+=`<div class="card"><h3>History</h3><div class="tl"><div><b>Reported</b> <span class="note">by ${esc(c.by)} · ${fmt(c.reportedAt)}</span></div>
+  ${c.updates.map(u=>`<div><b>${esc(u.from)} → ${esc(u.to)}</b>${u.delay?` · <i>${esc(u.delay)}</i>`:""}${u.note?`<br>${esc(u.note)}`:""}
+  <br><span class="note">Happened ${fmt(u.eventAt)} · entered ${fmt(u.enteredAt)} by ${esc(u.by)}</span></div>`).join("")}</div></div>`;
+  // reopen
+  if(c.reopen) h+=`<div class="card"><h3>Reopen request — ${esc(c.reopen.state)}</h3><p>${esc(c.reopen.reason)}</p><p class="note">Requested ${fmt(c.reopen.at)}${c.reopen.decidedAt?` · decided ${fmt(c.reopen.decidedAt)} by ${esc(c.reopen.by)}`:""}</p>
+  ${role==="admin"&&c.reopen.state==="Pending"?`<div class="btns"><button onclick="decide('${c.ref}',true)">Approve & reopen</button><button class="danger" onclick="decide('${c.ref}',false)">Decline</button></div>`:""}</div>`;
+  if(role==="student"&&c.status==="Completed"&&(!c.reopen||c.reopen.state!=="Pending"))
+    h+=`<div class="card"><h3>Problem not fixed?</h3><textarea id="rr" placeholder="Explain what is still wrong"></textarea><div class="btns"><button onclick="askReopen('${c.ref}')">Request reopening</button></div></div>`;
+  if(role==="admin"&&!["Completed","Closed"].includes(c.status)){
+    const next=STAGES.filter(s=>s!==c.status&&s!=="Reported");
+    const def=STAGES[idx+1]===STAGES[3]?STAGES[2]:STAGES[idx+1];
+    h+=`<div class="card"><h3>Record an update</h3><form id="uf">
+    <div class="row"><div><label>New status</label><select name="to" id="to">${next.map(s=>`<option ${s===(STAGES[idx+1]||"")?"selected":""}>${s}</option>`).join("")}</select></div>
+    <div id="dw"><label>Reason for waiting *</label><select name="delay">${DELAYS.map(x=>`<option>${x}</option>`).join("")}</select></div>
+    <div><label>When it happened</label><input type="datetime-local" name="ev"></div></div>
+    <label>Update (e.g. what the maintenance worker reported)</label><textarea name="note"></textarea>
+    <label><input type="checkbox" name="misuse" style="width:auto"> Inspection found the fault was caused by misuse</label>
+    <div class="btns"><button>Save update</button></div></form>
+    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+    <h3>Close without repair</h3><div class="row"><select id="cr"><option>Duplicate complaint</option><option>Outside hall maintenance responsibility</option></select></div>
+    <div class="btns"><button class="danger" onclick="closeC('${c.ref}')">Close complaint</button></div></div>`;
+  }
+  return h;
+}
+function bindUpdate(c){
+  const f=document.getElementById("uf");if(!f)return;
+  const sync=()=>document.getElementById("dw").hidden=!document.getElementById("to").value.startsWith("Waiting");sync();
+  document.getElementById("to").onchange=sync;
+  f.onsubmit=e=>{e.preventDefault();const v=Object.fromEntries(new FormData(f));
+    const u={from:c.status,to:v.to,note:v.note,by:USERS.admin.name,enteredAt:now(),eventAt:v.ev?new Date(v.ev).toISOString():now()};
+    if(v.to.startsWith("Waiting"))u.delay=v.delay;
+    if(v.misuse){c.misuse=v.note||"recorded at inspection";u.note=(u.note?u.note+" ":"")+"[Misuse recorded]"}
+    c.updates.push(u);c.status=v.to;save();toast("Update saved");render()};
+}
+function closeC(ref){const c=get(ref),r=document.getElementById("cr").value;c.updates.push({from:c.status,to:"Closed",note:r,by:USERS.admin.name,eventAt:now(),enteredAt:now()});c.status="Closed";c.closeReason=r;save();render()}
+function askReopen(ref){const r=document.getElementById("rr").value.trim();if(!r)return toast("Please give a reason");get(ref).reopen={reason:r,at:now(),state:"Pending"};save();toast("Reopen request sent");render()}
+function decide(ref,ok){const c=get(ref);Object.assign(c.reopen,{state:ok?"Approved":"Declined",decidedAt:now(),by:USERS.admin.name});
+  if(ok){c.updates.push({from:"Completed",to:"Reviewed",note:"Reopened: "+c.reopen.reason,by:USERS.admin.name,eventAt:now(),enteredAt:now()});c.status="Reviewed"}save();render()}
+
+function render(){
+  renderRoles();const app=document.getElementById("app");
+  if(view.ref){const c=get(view.ref);app.innerHTML=detail(c);bindUpdate(c);return}
+  if(role==="student"){
+    const mine=db.complaints.filter(c=>c.student===USERS.student.name);
+    app.innerHTML=`<p class="note">Signed in as <b>${USERS.student.name}</b>, ${USERS.student.hall} ${USERS.student.room}. You only see your own complaints.</p>`
+      +complaintForm(false)+`<div class="card"><h2>My complaints</h2>${list(mine,{})}</div>`;bindForm(false);
+  }else if(role==="porter"){
+    const mine=db.complaints.filter(c=>c.by===USERS.porter.name);
+    app.innerHTML=`<p class="note">Signed in as <b>${USERS.porter.name}</b>. Enter complaints reported to you or written in the repair notebook.</p>`
+      +complaintForm(true)+`<div class="card"><h2>Complaints I entered</h2>${list(mine,{student:1})}</div>`;bindForm(true);
+  }else{
+    const fs=view.fs||"Open",fd=view.fd||"";
+    let items=db.complaints.filter(c=>c.hall===USERS.admin.hall);
+    const count=s=>items.filter(s).length;
+    const stats=[["Open",count(c=>!["Completed","Closed"].includes(c.status))],["New",count(c=>c.status==="Reported")],
+      ["Waiting",count(c=>c.status.startsWith("Waiting"))],["Reopen requests",count(c=>c.reopen&&c.reopen.state==="Pending")]];
+    if(fs==="Open")items=items.filter(c=>!["Completed","Closed"].includes(c.status));
+    else if(fs==="Reopen requests")items=items.filter(c=>c.reopen&&c.reopen.state==="Pending");
+    else if(fs!=="All")items=items.filter(c=>c.status===fs);
+    if(fd)items=items.filter(c=>c.reportedAt.slice(0,10)>=fd);
+    app.innerHTML=`<p class="note">Signed in as <b>Hall Administrator</b>, ${USERS.admin.hall}.</p>
+    <div class="row" style="margin-bottom:16px">${stats.map(([k,v])=>`<div class="card" style="margin:0"><div class="note">${k}</div><div style="font-size:24px;font-weight:700">${v}</div></div>`).join("")}</div>
+    <div class="card"><h2>Complaints</h2><div class="row"><div><label>Status</label><select id="fs">${["Open","All","Reopen requests",...STAGES,"Closed"].map(s=>`<option ${s===fs?"selected":""}>${s}</option>`).join("")}</select></div>
+    <div><label>Reported on or after</label><input type="date" id="fd" value="${fd}"></div></div><br>${list(items,{student:1})}</div>`;
+    document.getElementById("fs").onchange=e=>{view.fs=e.target.value;render()};
+    document.getElementById("fd").onchange=e=>{view.fd=e.target.value;render()};
+  }
+}
+load();render();
+</script>
+</body>
+</html>
